@@ -1,0 +1,47 @@
+# server/docker-compose.yml
+#
+# The proxy listens on the port delivered by the manager's node config (NOT this
+# service's config.yml). Set SERVER_PORT to that port so the published mapping and
+# the healthcheck probe the correct port.
+#
+# Run once first:  docker network create vgate
+# Then:            docker compose -f manager/docker-compose.yml up -d
+#                   docker compose -f server/docker-compose.yml up -d
+#
+# To inject the build date:
+#   BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) docker compose -f server/docker-compose.yml build
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_DATE: "${BUILD_DATE}"
+    image: ghcr.io/vgate-project/vgate-server:latest
+    container_name: vgate-server
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-10086}:${SERVER_PORT:-10086}"
+    environment:
+      # Reachable manager URL. Defaults to the manager service name over the shared
+      # `vgate` network. If not using that network, set ADMIN_API to the manager's
+      # reachable address, e.g. http://host.docker.internal:8081.
+      ADMIN_API: "${ADMIN_API:-http://manager:8081}"
+      NODE_ID: "${NODE_ID:-}"
+      NODE_TOKEN: "${NODE_TOKEN:-}"
+      SYNC_INTERVAL: "60"
+      LOG_LEVEL: "info"
+      LISTEN_PORT: "${SERVER_PORT:-10086}"
+    networks:
+      - vgate
+    healthcheck:
+      test: ["CMD", "nc", "-z", "-w", "2", "localhost", "${SERVER_PORT:-10086}"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+networks:
+  vgate:
+    external: true
