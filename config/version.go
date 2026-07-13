@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	appName = "vGate-server"
+	appName = "VGate-server"
 	version = "dev"
 	date    = "unknown"
 )
