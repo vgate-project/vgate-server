@@ -14,14 +14,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// copyBufPool reuses the 32 KiB scratch buffers used by io.CopyBuffer in
-// handleTCP on the hot path. The two relay directions run in parallel, so
-// each takes its OWN buffer from the pool — a single shared buffer would be
-// a data race.
 var copyBufPool = sync.Pool{
 	New: func() any {
-		b := make([]byte, 32*1024)
-		return &b
+		return new(make([]byte, 32*1024))
 	},
 }
 

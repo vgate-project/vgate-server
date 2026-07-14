@@ -20,11 +20,8 @@ server holds no durable state of its own.
 ## Prerequisites
 
 - Go **1.26+**
-- A **local checkout of xray-core**. `go.mod` contains a `replace` directive that
-  points `github.com/xtls/xray-core` at an absolute local path
-  (`/Users/senis/GolandProjects/Xray-core` by default). Builds depend on that
-  checkout. To build against a published version instead, remove the `replace`
-  line from `go.mod`.
+- [xray-core](https://github.com/XTLS/Xray-core) is pulled in as a normal Go module
+  dependency — no local checkout or `replace` directive required.
 
 ## Build & run
 
@@ -76,7 +73,7 @@ The actual inbound settings — `port`, `stream` (transport + security), and `vl
 flow options — are **not** in this file. They live in `model.Config` and are pulled
 from the manager via `GET /server/config` on every sync tick, then applied with
 `server.UpdateConfig` (hot-reload). You configure these **per node in the admin
-console** (see [../manager/README.md](../manager/README.md) and the admin frontend),
+console** (see [vgate-manager](https://github.com/vgate-project/vgate-manager) and the admin frontend),
 not in the server's YAML.
 
 The tables and examples below describe the shape of that manager-delivered node
@@ -171,7 +168,7 @@ stream:
 ## Layout
 
 ```
-server/
+vgate-server/
 ├── main.go
 ├── api/                   REST client for manager sync
 ├── cmd/                   cobra CLI (root only)
@@ -196,7 +193,7 @@ server/
 │   ├── tcp/                 raw TCP transport (native)
 │   ├── ws/                  WebSocket transport (xray adapter)
 │   └── xhttp/               XHTTP transport (xray adapter)
-└── go.mod                  includes github.com/xtls/xray-core (+ replace)
+└── go.mod                  includes github.com/xtls/xray-core as a module dependency
 ```
 
 > Integration/unit tests (`*_test.go`, `manual_test.go`, `ws/xhttp/vision_*_test.go`)
