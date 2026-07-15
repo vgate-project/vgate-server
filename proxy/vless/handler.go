@@ -73,7 +73,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	var uuid [16]byte
 	copy(uuid[:], buf[1:17])
 	s.mu.RLock()
-	_, ok := s.users[uuid]
+	u, ok := s.users[uuid]
 	s.mu.RUnlock()
 	if !ok {
 		log.Warnf("Unauthorized VLESS connection from %s", conn.RemoteAddr())
@@ -158,8 +158,16 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 	}
 
+	p := "TCP"
+	if cmd == CmdUDP {
+		p = "UDP"
+	}
 	fullAddr := net.JoinHostPort(destAddr, strconv.Itoa(int(destPort)))
-	log.Infof("VLESS proxying to %s", fullAddr)
+	log.WithFields(log.Fields{
+		"client": c.RemoteAddr(),
+		"user":   u.Email,
+		"type":   p,
+	}).Infof("VLESS proxying to %s", fullAddr)
 
 	// Vision (xtls-rprx-vision) preconditions. Vision is a VLESS flow that
 	// pads the body and switches to direct raw-copy for TLS 1.3 inner

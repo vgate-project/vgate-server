@@ -99,7 +99,10 @@ func (s *Server) handleMux(c stdnet.Conn, initialData []byte, uuid [16]byte) {
 		return
 	}
 
-	log.Infof("VLESS Mux tunnel established to %s", c.RemoteAddr())
+	log.WithFields(log.Fields{
+		"client": c.RemoteAddr(),
+		"user":   s.users[uuid].Email,
+	}).Infof("VLESS Mux tunnel established to %s", c.RemoteAddr())
 	// Block until the Mux tunnel ends (client closes, or a fatal frame error).
 	select {
 	case <-ctx.Done():

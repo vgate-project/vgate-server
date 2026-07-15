@@ -88,7 +88,7 @@ func (s *Server) UpdateConfig(cfg *model.Config) {
 		changed = true
 	}
 	if !streamEqual(s.stream, cfg.Stream) {
-		log.Infof("VLESS transport updated from %q to %q", transportName(s.stream), transportName(cfg.Stream))
+		log.Infof("VLESS transport updated from %s to %s", transportName(s.stream), transportName(cfg.Stream))
 		// Defensive: reality SNI must not be empty.
 		if cfg.Stream.Security == "reality" {
 			if cfg.Stream.RealityConfig == nil || cfg.Stream.RealityConfig.ServerName == "" {
@@ -99,7 +99,7 @@ func (s *Server) UpdateConfig(cfg *model.Config) {
 		changed = true
 	}
 	if !vlessEqual(s.vless, cfg.VLESS) {
-		log.Infof("VLESS decryption updated: %q", cfg.VLESS.Decryption)
+		log.Infof("VLESS decryption updated: %s", cfg.VLESS.Decryption)
 		// Defensive: if security is none, flow must be empty.
 		if cfg.Stream.Security == "none" {
 			cfg.VLESS.Flow = ""
