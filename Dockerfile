@@ -28,4 +28,3 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD nc -z -w 2 localhost "$LISTEN_PORT" || exit 1
 
 ENTRYPOINT ["/app/vgate"]
-CMD ["--config", "/app/config.yml"]
