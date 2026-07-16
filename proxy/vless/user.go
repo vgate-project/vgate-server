@@ -17,7 +17,11 @@ func (s *Server) UpdateUsers(users []model.User) {
 	defer s.mu.Unlock()
 
 	oldUsers := s.users
+	oldULimiters := s.userULimiters
+	oldDLimiters := s.userDLimiters
 	newUsers := make(map[[16]byte]model.User)
+	newULimiters := make(map[[16]byte]*rateBucket)
+	newDLimiters := make(map[[16]byte]*rateBucket)
 	for _, u := range users {
 		uuid, err := ParseUUID(u.ID)
 		if err != nil {
@@ -25,8 +29,22 @@ func (s *Server) UpdateUsers(users []model.User) {
 			continue
 		}
 		newUsers[uuid] = u
+		// Reuse the existing bucket when the limit is unchanged so in-flight
+		// connections keep their accrued burst; otherwise build a fresh one.
+		if b, ok := oldULimiters[uuid]; ok && b != nil && b.rate == u.SpeedLimitUpBps {
+			newULimiters[uuid] = b
+		} else {
+			newULimiters[uuid] = newRateBucket(u.SpeedLimitUpBps)
+		}
+		if b, ok := oldDLimiters[uuid]; ok && b != nil && b.rate == u.SpeedLimitDownBps {
+			newDLimiters[uuid] = b
+		} else {
+			newDLimiters[uuid] = newRateBucket(u.SpeedLimitDownBps)
+		}
 	}
 	s.users = newUsers
+	s.userULimiters = newULimiters
+	s.userDLimiters = newDLimiters
 	log.Infof("VLESS users updated: %d users active", len(s.users))
 
 	// Close connections for deleted users
@@ -39,6 +57,8 @@ func (s *Server) UpdateUsers(users []model.User) {
 				}
 				delete(s.userConns, uuid)
 			}
+			delete(s.userULimiters, uuid)
+			delete(s.userDLimiters, uuid)
 		}
 	}
 }

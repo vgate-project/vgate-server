@@ -60,14 +60,25 @@ type Server struct {
 	userConns map[[16]byte]map[net.Conn]struct{}
 	// Traffic statistics: incremental byte counters per user UUID.
 	userTraffic map[[16]byte]*trafficStat
+
+	// Speed limiting (token buckets, bytes/sec; nil = unlimited). The global
+	// buckets cap the node's aggregate throughput across all users; the
+	// per-user buckets cap each user's throughput. Effective per-user rate is
+	// min(global, user).
+	globalULimiter *rateBucket
+	globalDLimiter *rateBucket
+	userULimiters  map[[16]byte]*rateBucket
+	userDLimiters  map[[16]byte]*rateBucket
 }
 
 func NewServer() *Server {
 	return &Server{
-		users:       make(map[[16]byte]model.User),
-		userConns:   make(map[[16]byte]map[net.Conn]struct{}),
-		userTraffic: make(map[[16]byte]*trafficStat),
-		enableMux:   true,
+		users:         make(map[[16]byte]model.User),
+		userConns:     make(map[[16]byte]map[net.Conn]struct{}),
+		userTraffic:   make(map[[16]byte]*trafficStat),
+		userULimiters: make(map[[16]byte]*rateBucket),
+		userDLimiters: make(map[[16]byte]*rateBucket),
+		enableMux:     true,
 	}
 }
 
@@ -112,6 +123,10 @@ func (s *Server) UpdateConfig(cfg *model.Config) {
 		s.rebuildDecryptionLocked(cfg.VLESS)
 		s.vless = cfg.VLESS
 	}
+
+	// Rebuild node-global speed-limit buckets (0 = unlimited → nil bucket).
+	s.globalULimiter = newRateBucket(cfg.SpeedLimitUpBps)
+	s.globalDLimiter = newRateBucket(cfg.SpeedLimitDownBps)
 
 	if changed && s.ln != nil {
 		s.ln.Close() // This will cause Start() to break its Accept loop and re-listen.

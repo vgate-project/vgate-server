@@ -8,6 +8,11 @@ type User struct {
 	Email    string    `json:"email"`     // User identifier
 	Level    int       `json:"level"`     // Level
 	ExpireAt time.Time `json:"expire_at"` // Expiration time
+	// SpeedLimitUpBps / SpeedLimitDownBps cap this user's upload / download
+	// throughput in bytes/sec (0 = unlimited). The effective rate is min of
+	// this and the node's global limit.
+	SpeedLimitUpBps   int64 `json:"speed_limit_up_bps"`
+	SpeedLimitDownBps int64 `json:"speed_limit_down_bps"`
 }
 
 // UserTraffic represents an incremental (delta) traffic report for a user.

@@ -5,6 +5,10 @@ type Config struct {
 	Port   int    `json:"port"`
 	Stream Stream `json:"stream"`
 	VLESS  VLESS  `json:"vless,omitempty"`
+	// SpeedLimitUpBps / SpeedLimitDownBps cap this node's aggregate upload /
+	// download throughput in bytes/sec (0 = unlimited). Enforced locally.
+	SpeedLimitUpBps   int64 `json:"speed_limit_up_bps"`
+	SpeedLimitDownBps int64 `json:"speed_limit_down_bps"`
 }
 
 // VLESS holds VLESS-protocol-specific inbound settings, independent of the

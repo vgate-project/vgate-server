@@ -28,6 +28,7 @@ func (c *countingConn) Read(b []byte) (int, error) {
 	n, err := c.Conn.Read(b)
 	if n > 0 {
 		c.server.addTraffic(c.uuid, int64(n), 0)
+		c.server.applyLimits(c.uuid, n, 0)
 	}
 	return n, err
 }
@@ -36,6 +37,7 @@ func (c *countingConn) Write(b []byte) (int, error) {
 	n, err := c.Conn.Write(b)
 	if n > 0 {
 		c.server.addTraffic(c.uuid, 0, int64(n))
+		c.server.applyLimits(c.uuid, 0, n)
 	}
 	return n, err
 }

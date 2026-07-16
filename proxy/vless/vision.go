@@ -119,6 +119,13 @@ func (s *Server) handleTCPVision(rawConn net.Conn, destAddr string, initialData 
 	}
 	defer destConn.Close()
 
+	// Wrap the destination connection with the speed limiter (node-global +
+	// per-user). The client-side rawConn is intentionally NOT wrapped: Vision's
+	// UnwrapRawConn requires the exact *tls.Conn/*reality.Conn type. Wrapping
+	// destConn shapes the user's total throughput without touching the TLS
+	// framing on the client side.
+	limitedDest := &rateLimitedConn{Conn: destConn, server: s, uuid: uuid}
+
 	// Vision traffic state. The UserUUID is shared between reader and writer:
 	// the writer prefixes the first padding block with it, and the reader
 	// checks it to detect padding blocks vs raw passthrough.
@@ -134,8 +141,8 @@ func (s *Server) handleTCPVision(rawConn net.Conn, destAddr string, initialData 
 	// Downlink: destination → client. isUplink=false (server writing server→client).
 	downlinkWriter := proxy.NewVisionWriter(buf.NewWriter(wrapped), trafficState, false, ctx, wrapped, nil, nil)
 
-	destReader := buf.NewReader(destConn)
-	destWriter := buf.NewWriter(destConn)
+	destReader := buf.NewReader(limitedDest)
+	destWriter := buf.NewWriter(limitedDest)
 
 	var upCount, downCount buf.SizeCounter
 	errChan := make(chan error, 2)
