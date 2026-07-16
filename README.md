@@ -4,8 +4,8 @@ VLESS inbound proxy node. Go 1.26. Module: `github.com/vgate-project/vgate-serve
 
 The server is a stateless proxy worker: it registers with the manager, periodically
 syncs its node config + authorized user list (hot-reloading on change), serves VLESS
-traffic, and reports per-user traffic back. The manager is the source of truth — the
-server holds no durable state of its own.
+traffic (optionally rate-limited per user and node-wide), and reports per-user traffic
+back. The manager is the source of truth — the server holds no durable state of its own.
 
 ## Tech stack
 
@@ -16,6 +16,7 @@ server holds no durable state of its own.
 - [xtls/reality](https://github.com/xtls/reality) for Reality security
 - [spf13/viper](https://github.com/spf13/viper) — YAML config
 - [spf13/cobra](https://github.com/spf13/cobra) — CLI
+- [golang.org/x/time/rate](https://pkg.go.dev/golang.org/x/time/rate) — token-bucket rate limiting (per-user / node-wide speed caps)
 
 ## Prerequisites
 
@@ -115,6 +116,19 @@ listener. For `ws` and `xhttp`, the security config is handed to xray-core via
 Vision requires the outer connection to be TLS 1.3 or Reality, and is incompatible
 with v2 encryption. See `proxy/vless/vision.go` for details.
 
+### Speed limiting
+
+A node can cap throughput in both directions. Two values drive it:
+
+- **Node-global** limits (`speed_limit_up_bps` / `speed_limit_down_bps`) cap the node's
+  aggregate upload/download throughput (bytes/sec).
+- **Per-user** limits (carried on each user in the `GET /server/users` payload) cap that
+  user's throughput.
+
+The effective rate for a user is the **minimum** of the node-global and per-user limits.
+A value of `0` means unlimited. Limits are enforced locally with token buckets
+(`golang.org/x/time/rate`); see `proxy/vless/ratelimit.go` and its test.
+
 ### Examples — node config the manager delivers
 
 These are examples of the `port` / `stream` / `vless` payload the manager sends to
@@ -184,6 +198,8 @@ vgate-server/
 │       ├── protocol.go     VLESS protocol constants/helpers
 │       ├── user.go         user set + connection tracking
 │       ├── traffic.go      per-user delta traffic counters
+│       ├── ratelimit.go    per-user + node-global speed limiting (token buckets)
+│       ├── ratelimit_test.go  unit tests for the limiter
 │       └── bootstrap.go    anonymous imports registering transports
 ├── transport/
 │   ├── transport.go        Transport interface + registry

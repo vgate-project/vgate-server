@@ -1,9 +1,10 @@
 package vless
 
 import (
+	"context"
 	"net"
 
-	"github.com/juju/ratelimit"
+	"golang.org/x/time/rate"
 )
 
 // rateBucket pairs a token bucket with the exact rate it was built for, so we
@@ -11,7 +12,7 @@ import (
 // hot-reload without re-parsing the bucket's float rate (which is subject to
 // rounding).
 type rateBucket struct {
-	b    *ratelimit.Bucket
+	b    *rate.Limiter
 	rate int64
 }
 
@@ -28,7 +29,7 @@ func newRateBucket(rateBytesPerSec int64) *rateBucket {
 // burst capacity is clamped to [1MiB, 8MiB]: a floor of 1MiB guarantees a
 // single read/write (<= ~32KiB) always fits within capacity, and the cap
 // bounds the memory used per bucket.
-func newBucket(rateBytesPerSec int64) *ratelimit.Bucket {
+func newBucket(rateBytesPerSec int64) *rate.Limiter {
 	const minBurst = 1 << 20 // 1 MiB
 	const maxBurst = 8 << 20 // 8 MiB
 	burst := rateBytesPerSec
@@ -38,7 +39,7 @@ func newBucket(rateBytesPerSec int64) *ratelimit.Bucket {
 	if burst > maxBurst {
 		burst = maxBurst
 	}
-	return ratelimit.NewBucketWithRate(float64(rateBytesPerSec), burst)
+	return rate.NewLimiter(rate.Limit(rateBytesPerSec), int(burst))
 }
 
 // applyLimits shapes the given upload/download byte counts for a user against
@@ -65,16 +66,20 @@ func (s *Server) applyLimits(uuid [16]byte, up, down int) {
 		if rb == nil || rb.b == nil || n <= 0 {
 			return
 		}
-		// Guard against n exceeding capacity: juju's Wait would otherwise
-		// block forever when asked for more tokens than the bucket can ever
-		// hold, so clamp to capacity.
-		tokens := int64(n)
-		if tokens > rb.b.Capacity() {
-			tokens = rb.b.Capacity()
+		// Guard against n exceeding the burst: lim.Wait tolerates n > burst,
+		// but clamping keeps any single op's latency bounded (and matches the
+		// previous behavior). Reads/writes are <= ~32KiB, well under the 1MiB
+		// burst floor, so this never triggers in practice.
+		tokens := n
+		if tokens > rb.b.Burst() {
+			tokens = rb.b.Burst()
 		}
-		// Wait blocks until `tokens` are available (tokens replenish at the
+		// WaitN blocks until `tokens` are available (tokens replenish at the
 		// bucket's rate, so it never blocks indefinitely for a positive rate).
-		rb.b.Wait(tokens)
+		// context.Background() preserves the old blocking semantics; a
+		// connection-scoped context could be threaded in later to unblock on
+		// socket close.
+		_ = rb.b.WaitN(context.Background(), tokens)
 	}
 	wait(gu, up)
 	wait(uu, up)

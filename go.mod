@@ -4,12 +4,12 @@ go 1.26
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/juju/ratelimit v1.0.2
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/xtls/reality v0.0.0-20260322125925-9234c772ba8f
 	github.com/xtls/xray-core v1.260327.0
+	golang.org/x/time v0.15.0
 	google.golang.org/protobuf v1.36.11
 	resty.dev/v3 v3.0.0-rc.3
 )
@@ -21,6 +21,7 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/juju/ratelimit v1.0.2 // indirect
 	github.com/klauspost/compress v1.19.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
