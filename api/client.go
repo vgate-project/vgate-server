@@ -60,7 +60,7 @@ func (c *Client) FetchConfig() (*model.Config, error) {
 		return nil, ErrNotModified
 	}
 	if resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch config: status %d", resp.StatusCode())
+		return nil, fmt.Errorf("failed to fetch config: status %d, %s", resp.StatusCode(), resp.String())
 	}
 
 	c.configETag = resp.Header().Get("ETag")
@@ -89,7 +89,7 @@ func (c *Client) FetchUsers() ([]model.User, error) {
 		return nil, ErrNotModified
 	}
 	if resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch users: status %d", resp.StatusCode())
+		return nil, fmt.Errorf("failed to fetch users: status %d, %s", resp.StatusCode(), resp.String())
 	}
 
 	c.usersETag = resp.Header().Get("ETag")

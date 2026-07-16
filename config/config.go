@@ -24,7 +24,7 @@ func LoadLocalConfig(path string) (*LocalConfig, error) {
 		v.AddConfigPath(".")
 	}
 
-	v.SetDefault("admin_api", "http://localhost:8080")
+	v.SetDefault("admin_api", "http://localhost:8081")
 	v.SetDefault("node_id", "")
 	v.SetDefault("node_token", "default_token")
 	v.SetDefault("sync_interval", 60)
