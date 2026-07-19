@@ -112,6 +112,28 @@ func (s *Server) handleConnection(conn net.Conn) {
 	cmd := buf[curr]
 	curr++
 
+	// Vision (xtls-rprx-vision) preconditions. Vision is a VLESS flow that
+	// pads the body and switches to direct raw-copy for TLS 1.3 inner
+	// traffic. It requires the outer conn to be *crypto/tls.Conn (TLS 1.3)
+	// or *github.com/xtls/reality.Conn, and is incompatible with the v2
+	// AEAD encryption layer. These checks run before the command dispatch
+	// so the Mux path (used by XUDP-over-Mux) also honours them; the
+	// standalone-UDP rejection stays in the TCP/UDP branch below.
+	isVision := flow == xrayvless.XRV
+	if isVision {
+		s.mu.RLock()
+		allowedFlow := s.vless.Flow
+		s.mu.RUnlock()
+		if allowedFlow != xrayvless.XRV {
+			log.Warnf("xtls-rprx-vision requested but not allowed by server config from %s", conn.RemoteAddr())
+			return
+		}
+		if s.decryption != nil {
+			log.Errorf("xtls-rprx-vision + v2 decryption is not supported together")
+			return
+		}
+	}
+
 	switch cmd {
 	case CmdMux:
 		// Mux.Cool: no port/address follows the command byte — the
@@ -124,7 +146,12 @@ func (s *Server) handleConnection(conn net.Conn) {
 		if _, err = c.Write([]byte{Version, 0}); err != nil {
 			return
 		}
-		s.handleMux(c, buf[curr:n], uuid)
+		// Pass both the counting conn (for traffic accounting on the
+		// non-Vision path) and the raw conn (needed by Vision's
+		// UnwrapRawConn), plus the flow flag, so handleMux can apply
+		// Vision decoding when XRV is enabled. Without it, XUDP-over-Mux
+		// is forwarded still padded and the Mux frames fail to parse.
+		s.handleMux(c, conn, buf[curr:n], uuid, isVision)
 		return
 	case CmdTCP, CmdUDP:
 		// continue with the standard single-target parse below
@@ -169,29 +196,12 @@ func (s *Server) handleConnection(conn net.Conn) {
 		"type":   p,
 	}).Infof("VLESS proxying to %s", fullAddr)
 
-	// Vision (xtls-rprx-vision) preconditions. Vision is a VLESS flow that
-	// pads the body and switches to direct raw-copy for TLS 1.3 inner
-	// traffic. It requires the outer conn to be *crypto/tls.Conn (TLS 1.3)
-	// or *github.com/xtls/reality.Conn, and is incompatible with the v2
-	// AEAD encryption layer (which hides the TLS conn from Vision's
-	// UnwrapRawConn). See vision.go for details.
-	isVision := flow == xrayvless.XRV
-	if isVision {
-		s.mu.RLock()
-		allowedFlow := s.vless.Flow
-		s.mu.RUnlock()
-		if allowedFlow != xrayvless.XRV {
-			log.Warnf("xtls-rprx-vision requested but not allowed by server config from %s", conn.RemoteAddr())
-			return
-		}
-		if cmd == CmdUDP {
-			log.Errorf("xtls-rprx-vision does not support UDP")
-			return
-		}
-		if s.decryption != nil {
-			log.Errorf("xtls-rprx-vision + v2 decryption is not supported together")
-			return
-		}
+	// XRV does not support standalone UDP (raw RequestCommandUDP). XUDP must
+	// be tunneled over Mux, which goes through the CmdMux branch above and is
+	// handled by handleMux with Vision decoding applied.
+	if isVision && cmd == CmdUDP {
+		log.Errorf("xtls-rprx-vision does not support UDP")
+		return
 	}
 
 	// 2. Response: Version(1) + AddonsLen(1) + Addons(0)
