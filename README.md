@@ -97,21 +97,26 @@ The `ws` and `xhttp` adapters delegate to xray-core's `websocket.ListenWS` and
 | `tls`     | stdlib `crypto/tls`       | all transports |
 | `reality` | `github.com/xtls/reality` | tcp, ws, xhttp |
 
+An unset/empty `security` resolves to `none`.
+
 For `tcp`, security is applied via `transport/security.Wrap` after binding the raw listener. For `ws` and `xhttp`, the
 security config is handed to xray-core via
 `MemoryStreamConfig.SecuritySettings` — xray applies TLS/Reality internally.
 
 Additional optional fields are accepted by each security backend (ignored when absent):
 **TLS** — `server_name`, `cert_file` / `key_file` (alternatives to `cert_pem` /
-`key_pem`), `alpn`, `max_version`, `reject_unknown_sni`; **Reality** — `show`,
-`xver`, `min_client_ver`, `max_client_ver`, `max_time_diff`.
+`key_pem`), `alpn`, `min_version`, `max_version`, `reject_unknown_sni`. If `min_version` is unset the
+node enforces **TLS 1.2** as a minimum. **Reality** — `show`, `xver`, `min_client_ver`,
+`max_client_ver`, `max_time_diff` (milliseconds).
 
 ### VLESS flows
 
+The `flow` field only ever takes one meaningful value, `xtls-rprx-vision` (empty = no flow). VLESS
+**v2 AEAD is not a flow** — it is enabled via the separate `vless.decryption` field (see below).
+
 | flow               | implementation                           |
 |--------------------|------------------------------------------|
-| plaintext v0       | vgate-native handler                     |
-| v2 AEAD encryption | xray-core `proxy/vless/encryption`       |
+| `""` (none)        | vgate-native handler                     |
 | `xtls-rprx-vision` | xray-core `proxy.NewVisionReader/Writer` |
 
 Vision requires the outer connection to be TLS 1.3 or Reality, and is incompatible with v2 encryption. See
@@ -217,9 +222,11 @@ vgate-server/
 ├── main.go
 ├── api/                   REST client for manager sync
 ├── cmd/                   cobra CLI (root only)
-├── config/                viper YAML config loader
-├── model/                 shared types (User, Config, Stream, VLESS, ...)
+├── config/                viper YAML config loader + version banner (version.go)
+├── model/                 shared types (User, UserTraffic, Config, Stream, TLSConfig,
+│                        RealityConfig; the `VLESS` type lives in config.go, not a separate file)
 ├── proxy/
+│   ├── proxy.go            Inbound interface (lifecycle contract used by cmd/root.go)
 │   └── vless/             VLESS inbound server
 │       ├── server.go       lifecycle + hot-reload
 │       ├── handler.go      VLESS handshake + TCP/UDP forwarder
@@ -235,7 +242,8 @@ vgate-server/
 ├── transport/
 │   ├── transport.go        Transport interface + registry
 │   ├── xraybridge/          shared helpers for xray adapters
-│   │                        (ChanListener, DecodeSettings, BuildXrayTLS/Reality)
+│   │                        (ChanListener, ParseAddrPort, ParseXrayAddress, SnakeToCamel,
+│   │                         BuildXrayTLSConfig, BuildXrayRealityConfig; InitLogger in log.go)
 │   ├── security/            TLS + Reality wrappers (used by tcp)
 │   ├── tcp/                 raw TCP transport (native)
 │   ├── ws/                  WebSocket transport (xray adapter)
