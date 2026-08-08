@@ -15,6 +15,10 @@ per-user traffic back. The manager is the source of truth — the server holds n
 - [xtls/reality](https://github.com/xtls/reality) for Reality security
 - [spf13/viper](https://github.com/spf13/viper) — YAML config
 - [spf13/cobra](https://github.com/spf13/cobra) — CLI
+- [resty.dev/v3](https://resty.dev/) — HTTP client for the manager sync API
+- [logrus](https://github.com/sirupsen/logrus) — logging
+- [google.golang.org/protobuf](https://pkg.go.dev/google.golang.org/protobuf) — protojson decoding of xray configs
+- [gorilla/websocket](https://github.com/gorilla/websocket) — WebSocket test client
 - [golang.org/x/time/rate](https://pkg.go.dev/golang.org/x/time/rate) — token-bucket rate limiting (per-user / node-wide
   speed caps)
 
@@ -54,8 +58,8 @@ contain inbound settings (port / transport / security)
 | `sync_interval` | int (seconds) | `60`                    | How often to pull config + users and report traffic.                         |
 | `log_level`     | string        | `info`                  | logrus + xray-core level: `panic,fatal,error,warn,warning,info,debug,trace`. |
 
-Environment variables override file values (viper `AutomaticEnv`, `.` → `_`, uppercase), e.g. `ADMIN_API`, `NODE_TOKEN`,
-`SYNC_INTERVAL`, `LOG_LEVEL`.
+Environment variables override file values (viper `AutomaticEnv`, uppercased; every key uses underscores, so
+`ADMIN_API`, `NODE_TOKEN`, `SYNC_INTERVAL`, `LOG_LEVEL` map directly — there is no `.` → `_` key replacer).
 
 Example `config.yml`:
 
@@ -106,8 +110,10 @@ security config is handed to xray-core via
 Additional optional fields are accepted by each security backend (ignored when absent):
 **TLS** — `server_name`, `cert_file` / `key_file` (alternatives to `cert_pem` /
 `key_pem`), `alpn`, `min_version`, `max_version`, `reject_unknown_sni`. If `min_version` is unset the
-node enforces **TLS 1.2** as a minimum. **Reality** — `show`, `xver`, `min_client_ver`,
-`max_client_ver`, `max_time_diff` (milliseconds).
+node enforces **TLS 1.2** as a minimum — but only on the native `tcp` path; for `ws` / `xhttp` an unset
+`min_version` is left empty and xray-core applies its own default. **Reality** — `show`, `xver`,
+`min_client_ver`, `max_client_ver`, `max_time_diff` (milliseconds). Note that Reality's `target`,
+`server_name`, and `private_key` are **required** — the node rejects a config missing any of them.
 
 ### VLESS flows
 
@@ -123,7 +129,9 @@ Vision requires the outer connection to be TLS 1.3 or Reality, and is incompatib
 `proxy/vless/vision.go` for details.
 
 **Flow restriction:** `flow` (e.g. `xtls-rprx-vision`) is only honored on the `tcp`
-transport. The node clears `flow` automatically for `ws` / `xhttp` and when the security layer is `none`.
+transport. When a hot-reload changes the `vless` block, the node defensively clears `flow` for
+`ws` / `xhttp` networks and when the security layer is exactly `none`. An empty/unset `security` or
+`network` (which otherwise resolve to `none` / `tcp`) is not matched by that check.
 
 ### VLESS `vless` block
 
