@@ -235,7 +235,12 @@ func (s *Server) handleMux(countingC stdnet.Conn, rawConn stdnet.Conn, initialDa
 	}
 
 	if isVision {
-		s.addTraffic(uuid, upCount.Size, downCount.Size)
+		// The counting conn carries the entry point resolved at accept time.
+		node := ""
+		if cc, ok := countingC.(*countingConn); ok {
+			node = cc.node
+		}
+		s.addTraffic(uuid, node, upCount.Size, downCount.Size)
 	}
 
 	log.Infof("VLESS Mux tunnel closed for %s", countingC.RemoteAddr())

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/xtls/reality"
 	xrayvless "github.com/xtls/xray-core/proxy/vless"
 	xrayencoding "github.com/xtls/xray-core/proxy/vless/encoding"
 	"google.golang.org/protobuf/proto"
@@ -43,6 +44,17 @@ func closeWrite(conn net.Conn) {
 // and are transparently AEAD-encrypted/decrypted.
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
+
+	// Entry-point attribution: on the native tcp+reality path the accepted
+	// conn is *reality.Conn and carries the short ID the client connected
+	// with; map it to the virtual child node owning that SID. Empty result
+	// (non-reality, xraybridge transports, or unknown SID) attributes the
+	// traffic to this node. Must happen before any wrapping — Vision's
+	// UnwrapRawConn requires the exact *reality.Conn type.
+	entryNode := ""
+	if rc, ok := conn.(*reality.Conn); ok {
+		entryNode = s.nodeForShortID(rc.ClientShortId)
+	}
 
 	// VLESS v2: if decryption is configured, wrap the conn in an AEAD tunnel
 	// before parsing the VLESS v0 header. The wrap is transport-level — the
@@ -83,8 +95,8 @@ func (s *Server) handleConnection(conn net.Conn) {
 	// 1.2.1 Register connection and start counting traffic
 	s.addConn(uuid, conn)
 	defer s.removeConn(uuid, conn)
-	s.addTraffic(uuid, int64(n), 0)
-	c := &countingConn{Conn: conn, uuid: uuid, server: s}
+	s.addTraffic(uuid, entryNode, int64(n), 0)
+	c := &countingConn{Conn: conn, uuid: uuid, node: entryNode, server: s}
 
 	// 1.3 Addons — decode protobuf to extract flow (was: skip N bytes).
 	// The addons bytes are a protobuf-encoded encoding.Addons message;
@@ -216,7 +228,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		// Pass the raw conn (not the countingConn) — Vision's UnwrapRawConn
 		// must see the underlying *tls.Conn / *reality.Conn. Traffic is
 		// counted via buf.CountSize inside handleTCPVision.
-		s.handleTCPVision(conn, fullAddr, buf[curr:n], uuid)
+		s.handleTCPVision(conn, fullAddr, buf[curr:n], uuid, entryNode)
 		return
 	}
 	if cmd == CmdTCP {

@@ -9,6 +9,17 @@ type Config struct {
 	// download throughput in bytes/sec (0 = unlimited). Enforced locally.
 	SpeedLimitUpBps   int64 `json:"speed_limit_up_bps"`
 	SpeedLimitDownBps int64 `json:"speed_limit_down_bps"`
+	// TrafficSIDs maps Reality short IDs to the virtual child node each one
+	// belongs to, so reported traffic can be attributed to the entry point
+	// (this node vs one of its virtual children) the client actually used.
+	// Short IDs not listed here are attributed to this node.
+	TrafficSIDs []TrafficSID `json:"traffic_sids,omitempty"`
+}
+
+// TrafficSID binds one Reality short ID to the virtual child node that owns it.
+type TrafficSID struct {
+	NodeID string `json:"node_id"` // virtual child node ID
+	SID    string `json:"sid"`     // lowercase hex short ID (up to 16 chars)
 }
 
 // VLESS holds VLESS-protocol-specific inbound settings, independent of the

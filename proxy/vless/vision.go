@@ -105,7 +105,7 @@ func peekBuffers(t reflect.Type, p uintptr) (*bytes.Reader, *bytes.Buffer, error
 // does not recognize vgate's countingConn type, so direct-copy would read/write
 // through the TLS layer (re-encrypting raw inner TLS records → corruption).
 // Traffic is counted via buf.CountSize + s.addTraffic instead.
-func (s *Server) handleTCPVision(rawConn net.Conn, destAddr string, initialData []byte, uuid [16]byte) {
+func (s *Server) handleTCPVision(rawConn net.Conn, destAddr string, initialData []byte, uuid [16]byte, entryNode string) {
 	wrapped, input, rawInput, err := setupVisionConn(rawConn)
 	if err != nil {
 		log.Errorf("vision setup failed from %s: %v", rawConn.RemoteAddr(), err)
@@ -155,5 +155,5 @@ func (s *Server) handleTCPVision(rawConn net.Conn, destAddr string, initialData 
 	<-errChan // first side to finish closes the relay
 
 	// Account traffic (replaces countingConn for the Vision path).
-	s.addTraffic(uuid, upCount.Size, downCount.Size)
+	s.addTraffic(uuid, entryNode, upCount.Size, downCount.Size)
 }

@@ -76,7 +76,11 @@ func run() {
 	// 2. Initialize API client and VLESS server
 	baseURL := strings.TrimRight(localCfg.AdminAPI, "/") + "/api/v1/server"
 	client := api.NewClient(baseURL, localCfg.NodeID, localCfg.NodeToken)
-	var server proxy.Inbound = vless.NewServer()
+	vlessServer := vless.NewServer()
+	// Traffic deltas carry this node's ID (and, via Reality short IDs, the
+	// virtual entry point they arrived on) so the manager can attribute them.
+	vlessServer.SetNodeID(localCfg.NodeID)
+	var server proxy.Inbound = vlessServer
 
 	// 3. Initial sync
 	pendingTraffic := make(map[string]*model.UserTraffic)
@@ -117,17 +121,20 @@ func sync(client *api.Client, server proxy.Inbound, pendingTraffic map[string]*m
 		server.UpdateUsers(users)
 	}
 
-	// 6. Traffic reporting
+	// 6. Traffic reporting. Deltas are accumulated per (email, entry node) so
+	// virtual-entry traffic stays separate from the real node's.
 	stats := server.GetAndResetTraffic()
 	for _, s := range stats {
-		if t, ok := pendingTraffic[s.Email]; ok {
+		key := s.Email + "\x00" + s.NodeID
+		if t, ok := pendingTraffic[key]; ok {
 			t.Up += s.Up
 			t.Down += s.Down
 		} else {
-			pendingTraffic[s.Email] = &model.UserTraffic{
-				Email: s.Email,
-				Up:    s.Up,
-				Down:  s.Down,
+			pendingTraffic[key] = &model.UserTraffic{
+				Email:  s.Email,
+				NodeID: s.NodeID,
+				Up:     s.Up,
+				Down:   s.Down,
 			}
 		}
 	}

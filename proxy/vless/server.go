@@ -3,6 +3,7 @@ package vless
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net"
@@ -58,8 +59,17 @@ type Server struct {
 
 	// Connection management: active connections indexed by user UUID.
 	userConns map[[16]byte]map[net.Conn]struct{}
-	// Traffic statistics: incremental byte counters per user UUID.
-	userTraffic map[[16]byte]*trafficStat
+	// Traffic statistics: incremental byte counters per user UUID and entry
+	// point (real node vs virtual child, distinguished by Reality short ID).
+	userTraffic map[trafficKey]*trafficStat
+
+	// nodeID is this node's ID from config.yml, reported alongside traffic so
+	// the manager can verify per-entry attribution claims.
+	nodeID string
+	// sidNode maps Reality short IDs to the virtual child node owning each
+	// one (from Config.TrafficSIDs). Short IDs not present here belong to
+	// this (real) node.
+	sidNode map[[8]byte]string
 
 	// Speed limiting (token buckets, bytes/sec; nil = unlimited). The global
 	// buckets cap the node's aggregate throughput across all users; the
@@ -75,11 +85,20 @@ func NewServer() *Server {
 	return &Server{
 		users:         make(map[[16]byte]model.User),
 		userConns:     make(map[[16]byte]map[net.Conn]struct{}),
-		userTraffic:   make(map[[16]byte]*trafficStat),
+		userTraffic:   make(map[trafficKey]*trafficStat),
 		userULimiters: make(map[[16]byte]*rateBucket),
 		userDLimiters: make(map[[16]byte]*rateBucket),
+		sidNode:       make(map[[8]byte]string),
 		enableMux:     true,
 	}
+}
+
+// SetNodeID records this node's own ID (from config.yml). It is reported with
+// every traffic delta so the manager can verify entry-point attribution.
+func (s *Server) SetNodeID(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nodeID = id
 }
 
 // UpdateConfig applies a new server configuration (hot-reload). If either
@@ -127,6 +146,22 @@ func (s *Server) UpdateConfig(cfg *model.Config) {
 	// Rebuild node-global speed-limit buckets (0 = unlimited → nil bucket).
 	s.globalULimiter = newRateBucket(cfg.SpeedLimitUpBps)
 	s.globalDLimiter = newRateBucket(cfg.SpeedLimitDownBps)
+
+	// Rebuild the Reality short-ID → virtual child mapping used for entry-
+	// point traffic attribution. Rebuilt on every config update, so sid
+	// changes apply without a listener rebind.
+	sidNode := make(map[[8]byte]string, len(cfg.TrafficSIDs))
+	for _, ts := range cfg.TrafficSIDs {
+		b, err := hex.DecodeString(strings.ToLower(strings.TrimSpace(ts.SID)))
+		if err != nil || len(b) == 0 || len(b) > 8 {
+			log.Warnf("traffic short_id %q for node %s is not 1-16 hex chars; skipped", ts.SID, ts.NodeID)
+			continue
+		}
+		var key [8]byte
+		copy(key[:], b)
+		sidNode[key] = ts.NodeID
+	}
+	s.sidNode = sidNode
 
 	if changed && s.ln != nil {
 		s.ln.Close() // This will cause Start() to break its Accept loop and re-listen.

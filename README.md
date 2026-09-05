@@ -4,7 +4,7 @@ VLESS inbound proxy node. Go 1.26. Module: `github.com/vgate-project/vgate-serve
 
 The server is a stateless proxy worker: it registers with the manager, periodically syncs its node config + authorized
 user list (hot-reloading on change), serves VLESS traffic (optionally rate-limited per user and node-wide), and reports
-per-user traffic back. The manager is the source of truth — the server holds no durable state of its own.
+per-user, per-entry-point traffic back. The manager is the source of truth — the server holds no durable state of its own.
 
 ## Tech stack
 
@@ -40,8 +40,8 @@ go build -o vgate .
 
 The root command loads the local viper YAML config, creates an `api.Client` pointed at `<AdminAPI>/api/v1/server`,
 starts the VLESS inbound server, then runs a ticker loop that calls `sync()` every `SyncInterval` seconds. `sync()`
-pulls config + users (short-circuiting with HTTP 304 when unchanged), applies hot-reload, and posts accumulated per-user
-traffic back to the manager.
+pulls config + users (short-circuiting with HTTP 304 when unchanged), applies hot-reload, and posts accumulated per-user,
+per-entry-point traffic back to the manager.
 
 ## Local configuration (`config.yml`)
 
@@ -114,6 +114,28 @@ node enforces **TLS 1.2** as a minimum — but only on the native `tcp` path; fo
 `min_version` is left empty and xray-core applies its own default. **Reality** — `show`, `xver`,
 `min_client_ver`, `max_client_ver`, `max_time_diff` (milliseconds). Note that Reality's `target`,
 `server_name`, and `private_key` are **required** — the node rejects a config missing any of them.
+
+### Traffic attribution (`traffic_sids`)
+
+Besides `port` / `stream` / `vless`, the manager-delivered config carries an optional
+`traffic_sids` list mapping Reality short IDs to the virtual child node that owns each one:
+
+```yaml
+traffic_sids:
+  - node_id: 01JXXXXXXXXXXXXXXXXXXXXXXX
+    sid: "1234abcd"
+```
+
+Each virtual child of this node with a dedicated `reality_sid` gets one entry. On the native
+`tcp` + reality path the accepted connection is a `*reality.Conn` whose public `ClientShortId`
+field holds the short ID the client connected with; the node maps it back to the owning child's
+ID and keys its traffic counters by `(user, entry point)`. The periodic traffic report then
+carries `node_id` per delta so the manager can attribute the bytes to the virtual entry point
+instead of this node.
+
+Short IDs not listed in `traffic_sids` — including the empty SID, non-reality traffic, and the
+`ws` / `xhttp` paths (where Reality is terminated inside xray-core and the short ID never
+surfaces to vgate) — fall back to this node.
 
 ### VLESS flows
 
@@ -232,7 +254,8 @@ vgate-server/
 ├── cmd/                   cobra CLI (root only)
 ├── config/                viper YAML config loader + version banner (version.go)
 ├── model/                 shared types (User, UserTraffic, Config, Stream, TLSConfig,
-│                        RealityConfig; the `VLESS` type lives in config.go, not a separate file)
+│                        RealityConfig, TrafficSID; the `VLESS` type lives in config.go,
+│                        not a separate file)
 ├── proxy/
 │   ├── proxy.go            Inbound interface (lifecycle contract used by cmd/root.go)
 │   └── vless/             VLESS inbound server
@@ -243,7 +266,7 @@ vgate-server/
 │       ├── mux.go          mux (TCP/HTTP/WebSocket) handling
 │       ├── protocol.go     VLESS protocol constants/helpers
 │       ├── user.go         user set + connection tracking
-│       ├── traffic.go      per-user delta traffic counters
+│       ├── traffic.go      per-user, per-entry-point delta traffic counters
 │       ├── ratelimit.go    per-user + node-global speed limiting (token buckets)
 │       ├── ratelimit_test.go  unit tests for the limiter
 │       └── bootstrap.go    anonymous imports registering transports

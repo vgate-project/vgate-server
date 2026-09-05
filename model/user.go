@@ -21,6 +21,9 @@ type User struct {
 // aggregating these increments to obtain total usage.
 type UserTraffic struct {
 	Email string `json:"email"`
-	Up    int64  `json:"up"`   // Uploaded bytes since last report (delta)
-	Down  int64  `json:"down"` // Downloaded bytes since last report (delta)
+	// NodeID is the entry point the traffic was measured on (a virtual child
+	// of this node, matched by Reality short ID); empty means this node.
+	NodeID string `json:"node_id,omitempty"`
+	Up     int64  `json:"up"`   // Uploaded bytes since last report (delta)
+	Down   int64  `json:"down"` // Downloaded bytes since last report (delta)
 }
