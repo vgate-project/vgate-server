@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.26 AS builder
+FROM golang:1.27 AS builder
 
 # Build-time date/version injected into config.date / config.version (override
 # the "unknown"/"dev" defaults in config/version.go). Pass via
