@@ -148,10 +148,38 @@ func sync(client *api.Client, server proxy.Inbound, pendingTraffic map[string]*m
 		if err != nil {
 			log.Errorf("Failed to report traffic: %v. Data will be kept for next report.", err)
 		} else {
-			log.Debugf("Successfully reported traffic for %d users", len(pendingTraffic))
+			log.Debugf("Successfully reported traffic for %d users", len(reportList))
 			for k := range pendingTraffic {
 				delete(pendingTraffic, k)
 			}
+			applyUsage(client, server)
 		}
+	} else {
+		// Nothing to report: still refresh the quota snapshots so renewals
+		// and quota changes reach the node while it is idle.
+		applyUsage(client, server)
+	}
+}
+
+// usageEndpointMissing fires once when the manager replies 404 to /usage
+// (it predates the endpoint); afterwards the condition stays silent so the
+// log is not spammed every sync cycle.
+var usageEndpointMissing bool
+
+// applyUsage pulls the manager's per-user quota snapshots and hands them to
+// the proxy for local enforcement. On fetch failure the previous snapshot
+// stays in force (conservative); a missing endpoint disables the feature.
+func applyUsage(client *api.Client, server proxy.Inbound) {
+	usage, err := client.FetchUsage()
+	switch {
+	case errors.Is(err, api.ErrNoUsageEndpoint):
+		if !usageEndpointMissing {
+			usageEndpointMissing = true
+			log.Warn("Manager does not expose /usage; local quota enforcement stays off (manager-side filter only)")
+		}
+	case err != nil:
+		log.Errorf("Error fetching usage: %v (keeping previous quota snapshots)", err)
+	default:
+		server.ApplyUsage(usage)
 	}
 }

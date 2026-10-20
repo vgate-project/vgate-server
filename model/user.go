@@ -27,3 +27,14 @@ type UserTraffic struct {
 	Up     int64  `json:"up"`   // Uploaded bytes since last report (delta)
 	Down   int64  `json:"down"` // Downloaded bytes since last report (delta)
 }
+
+// UserUsage is a per-user accounting snapshot pulled from the manager's
+// GET /server/usage: the effective traffic cap (base plan + bonus pool,
+// -1 = unlimited) and the manager-side used total at snapshot time. The node
+// adds its own un-reported bytes on top and enforces the cap locally; the
+// manager's /users quota filter remains the authoritative gate.
+type UserUsage struct {
+	Email      string `json:"email"`
+	QuotaBytes int64  `json:"quota_bytes"` // -1 = unlimited
+	UsedBytes  int64  `json:"used_bytes"`
+}

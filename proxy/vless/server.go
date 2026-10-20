@@ -62,6 +62,9 @@ type Server struct {
 	// Traffic statistics: incremental byte counters per user UUID and entry
 	// point (real node vs virtual child, distinguished by Reality short ID).
 	userTraffic map[trafficKey]*trafficStat
+	// Local quota enforcement state per user UUID (manager /usage snapshots
+	// + node-side accrual). nil entry / empty map = enforcement off.
+	userQuota map[[16]byte]*quotaState
 
 	// nodeID is this node's ID from config.yml, reported alongside traffic so
 	// the manager can verify per-entry attribution claims.
@@ -86,6 +89,7 @@ func NewServer() *Server {
 		users:         make(map[[16]byte]model.User),
 		userConns:     make(map[[16]byte]map[net.Conn]struct{}),
 		userTraffic:   make(map[trafficKey]*trafficStat),
+		userQuota:     make(map[[16]byte]*quotaState),
 		userULimiters: make(map[[16]byte]*rateBucket),
 		userDLimiters: make(map[[16]byte]*rateBucket),
 		sidNode:       make(map[[8]byte]string),

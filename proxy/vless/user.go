@@ -59,6 +59,7 @@ func (s *Server) UpdateUsers(users []model.User) {
 			}
 			delete(s.userULimiters, uuid)
 			delete(s.userDLimiters, uuid)
+			delete(s.userQuota, uuid)
 		}
 	}
 }

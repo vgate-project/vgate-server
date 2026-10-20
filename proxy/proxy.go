@@ -22,6 +22,11 @@ type Inbound interface {
 	// are closed.
 	UpdateUsers(users []model.User)
 
+	// ApplyUsage replaces the per-user quota snapshots (from the manager's
+	// /usage endpoint) used for local quota enforcement. Called after each
+	// successful traffic report so the snapshot includes the reported bytes.
+	ApplyUsage(usage []model.UserUsage)
+
 	// GetAndResetTraffic atomically reads and resets per-user traffic
 	// counters, returning incremental deltas since the last call.
 	GetAndResetTraffic() []model.UserTraffic

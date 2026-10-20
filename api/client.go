@@ -17,6 +17,11 @@ import (
 // It is non-fatal: the caller should keep its current config/users.
 var ErrNotModified = errors.New("resource not modified")
 
+// ErrNoUsageEndpoint is returned by FetchUsage when the manager replies 404 —
+// it predates the /usage endpoint. Non-fatal: local quota enforcement stays
+// off and the manager-side /users quota filter remains the only gate.
+var ErrNoUsageEndpoint = errors.New("usage endpoint not available")
+
 type Client struct {
 	BaseURL    string
 	NodeID     string
@@ -98,6 +103,33 @@ func (c *Client) FetchUsers() ([]model.User, error) {
 		return nil, err
 	}
 	return users, nil
+}
+
+// FetchUsage pulls per-user accounting snapshots (effective quota +
+// manager-side used bytes) for local quota enforcement. A 404 returns
+// ErrNoUsageEndpoint (manager predates the endpoint); other failures return
+// the error so the caller can keep its previous snapshot.
+func (c *Client) FetchUsage() ([]model.UserUsage, error) {
+	resp, err := c.client.R().
+		SetQueryParam("node_id", c.NodeID).
+		SetQueryParam("token", c.Token).
+		Get(c.BaseURL + "/usage")
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode() == http.StatusNotFound {
+		return nil, ErrNoUsageEndpoint
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch usage: status %d, %s", resp.StatusCode(), resp.String())
+	}
+
+	var usage []model.UserUsage
+	if err := json.NewDecoder(resp.Body).Decode(&usage); err != nil {
+		return nil, err
+	}
+	return usage, nil
 }
 
 // ReportTraffic sends incremental (delta) user traffic statistics to the manager.
