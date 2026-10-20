@@ -92,12 +92,19 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 	}
 
+	// 1.2.0 Local quota gate: reject a locally cut user before the
+	// connection is registered. The manager-side /users filter remains the
+	// authoritative gate; this only shrinks the cutoff window.
+	if s.userOverQuota(uuid) {
+		log.Warnf("Rejected VLESS connection from locally over-quota user %s (%s)", u.Email, conn.RemoteAddr())
+		return
+	}
+
 	// 1.2.1 Register connection and start counting traffic
 	s.addConn(uuid, conn)
 	defer s.removeConn(uuid, conn)
 	s.addTraffic(uuid, entryNode, int64(n), 0)
 	c := &countingConn{Conn: conn, uuid: uuid, node: entryNode, server: s}
-
 	// 1.3 Addons — decode protobuf to extract flow (was: skip N bytes).
 	// The addons bytes are a protobuf-encoded encoding.Addons message;
 	// flow == "xtls-rprx-vision" activates the Vision flow.
@@ -227,7 +234,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	if isVision {
 		// Pass the raw conn (not the countingConn) — Vision's UnwrapRawConn
 		// must see the underlying *tls.Conn / *reality.Conn. Traffic is
-		// counted via buf.CountSize inside handleTCPVision.
+		// accounted per chunk via accountReader inside handleTCPVision.
 		s.handleTCPVision(conn, fullAddr, buf[curr:n], uuid, entryNode)
 		return
 	}

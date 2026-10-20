@@ -181,9 +181,8 @@ func (s *Server) handleMux(countingC stdnet.Conn, rawConn stdnet.Conn, initialDa
 	defer cancel()
 
 	var (
-		reader             buf.Reader
-		writer             buf.Writer
-		upCount, downCount buf.SizeCounter
+		reader buf.Reader
+		writer buf.Writer
 	)
 
 	if isVision {
@@ -200,10 +199,21 @@ func (s *Server) handleMux(countingC stdnet.Conn, rawConn stdnet.Conn, initialDa
 		combined := io.MultiReader(bytes.NewReader(initialData), wrapped)
 		visionReader := proxy.NewVisionReader(buf.NewReader(combined), trafficState, true, ctx, wrapped, input, rawInput, nil)
 		visionWriter := proxy.NewVisionWriter(buf.NewWriter(wrapped), trafficState, false, ctx, wrapped, nil, nil)
-		// Count Mux traffic at the buf layer: the countingConn cannot wrap the
-		// raw conn (Vision needs the exact *tls.Conn/*reality.Conn type).
-		reader = &sizeCountReader{Reader: visionReader, counter: &upCount}
-		writer = &sizeCountWriter{Writer: visionWriter, counter: &downCount}
+		// Count each chunk into the per-user traffic stat as it flows (the
+		// countingConn cannot wrap the raw conn — Vision needs the exact
+		// *tls.Conn/*reality.Conn type). Chunk-level accounting keeps a
+		// long-lived Mux tunnel's bytes visible to the 60s delta reports and
+		// quota enforcement while the tunnel stays open.
+		node := ""
+		if cc, ok := countingC.(*countingConn); ok {
+			node = cc.node
+		}
+		reader = &accountReader{Reader: visionReader, fn: func(n int64) {
+			s.addTraffic(uuid, node, n, 0)
+		}}
+		writer = &accountWriter{Writer: visionWriter, fn: func(n int64) {
+			s.addTraffic(uuid, node, 0, n)
+		}}
 	} else {
 		// Seed a buffered reader with the leftover handshake bytes so the
 		// first Mux frame is parsed intact, then continue reading from conn.
@@ -234,43 +244,5 @@ func (s *Server) handleMux(countingC stdnet.Conn, rawConn stdnet.Conn, initialDa
 	case <-worker.WaitClosed():
 	}
 
-	if isVision {
-		// The counting conn carries the entry point resolved at accept time.
-		node := ""
-		if cc, ok := countingC.(*countingConn); ok {
-			node = cc.node
-		}
-		s.addTraffic(uuid, node, upCount.Size, downCount.Size)
-	}
-
 	log.Infof("VLESS Mux tunnel closed for %s", countingC.RemoteAddr())
-}
-
-// sizeCountReader wraps a buf.Reader and tallies the bytes it yields. It is
-// used to account traffic for the Vision Mux path, where the underlying conn
-// cannot be wrapped by the countingConn.
-type sizeCountReader struct {
-	buf.Reader
-	counter *buf.SizeCounter
-}
-
-func (r *sizeCountReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
-	mb, err := r.Reader.ReadMultiBuffer()
-	if !mb.IsEmpty() {
-		r.counter.Size += int64(mb.Len())
-	}
-	return mb, err
-}
-
-// sizeCountWriter wraps a buf.Writer and tallies the bytes it accepts.
-type sizeCountWriter struct {
-	buf.Writer
-	counter *buf.SizeCounter
-}
-
-func (w *sizeCountWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
-	if !mb.IsEmpty() {
-		w.counter.Size += int64(mb.Len())
-	}
-	return w.Writer.WriteMultiBuffer(mb)
 }

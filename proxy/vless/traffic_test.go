@@ -2,7 +2,10 @@ package vless
 
 import (
 	"encoding/hex"
+	"errors"
 	"testing"
+
+	"github.com/xtls/xray-core/common/buf"
 
 	"github.com/vgate-project/vgate-server/model"
 )
@@ -43,6 +46,83 @@ func TestTrafficAccountingPerEntryNode(t *testing.T) {
 	if again := s.GetAndResetTraffic(); len(again) != 0 {
 		t.Errorf("second GetAndResetTraffic = %+v, want empty", again)
 	}
+}
+
+// staticReader yields the given buffers once, then errors. It drives the
+// accountReader/accountWriter tests without a network.
+type staticReader struct {
+	mbs []buf.MultiBuffer
+}
+
+func (r *staticReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
+	if len(r.mbs) == 0 {
+		return nil, errors.New("closed")
+	}
+	mb := r.mbs[0]
+	r.mbs = r.mbs[1:]
+	return mb, nil
+}
+
+// TestAccountReaderWriterChunkCallbacks verifies the chunk-level accounting
+// hooks used by the Vision paths: every non-empty chunk invokes fn with its
+// byte count as it flows, so addTraffic sees bytes while a connection is
+// still open (the regression anchor for the deferred-accounting bug where a
+// SizeCounter was only flushed at copy end).
+func TestAccountReaderWriterChunkCallbacks(t *testing.T) {
+	s := NewServer()
+	var uuid [16]byte
+	uuid[0] = 1
+	s.users[uuid] = model.User{Email: "u@example.com"}
+
+	sr := &staticReader{mbs: []buf.MultiBuffer{
+		buf.MultiBuffer{buf.FromBytes(make([]byte, 100))},
+		buf.MultiBuffer{buf.FromBytes(make([]byte, 50))},
+	}}
+	ar := &accountReader{Reader: sr, fn: func(n int64) { s.addTraffic(uuid, "", n, 0) }}
+
+	if _, err := ar.ReadMultiBuffer(); err != nil {
+		t.Fatalf("read 1: %v", err)
+	}
+	if _, err := ar.ReadMultiBuffer(); err != nil {
+		t.Fatalf("read 2: %v", err)
+	}
+	// Both chunks are already accounted — no connection close involved.
+	stats := s.GetAndResetTraffic()
+	if len(stats) != 1 || stats[0].Up != 150 {
+		t.Errorf("after two chunks, stats = %+v, want one entry with up 150", stats)
+	}
+	if _, err := ar.ReadMultiBuffer(); err == nil {
+		t.Error("expected error on exhausted reader")
+	}
+	if again := s.GetAndResetTraffic(); len(again) != 0 {
+		t.Errorf("stats after error read = %+v, want empty (error chunk adds nothing)", again)
+	}
+}
+
+// TestAccountWriterChunkCallback is the WriteMultiBuffer counterpart.
+func TestAccountWriterChunkCallback(t *testing.T) {
+	s := NewServer()
+	var uuid [16]byte
+	uuid[0] = 2
+	s.users[uuid] = model.User{Email: "w@example.com"}
+
+	pipe := &passthroughWriter{}
+	aw := &accountWriter{Writer: pipe, fn: func(n int64) { s.addTraffic(uuid, "", 0, n) }}
+	if err := aw.WriteMultiBuffer(buf.MultiBuffer{buf.FromBytes(make([]byte, 42))}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	stats := s.GetAndResetTraffic()
+	if len(stats) != 1 || stats[0].Down != 42 {
+		t.Errorf("stats = %+v, want one entry with down 42", stats)
+	}
+}
+
+// passthroughWriter accepts and discards buffers.
+type passthroughWriter struct{}
+
+func (w *passthroughWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
+	buf.ReleaseMulti(mb)
+	return nil
 }
 
 // TestNodeForShortID verifies the sid → virtual child mapping built from the

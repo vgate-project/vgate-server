@@ -104,7 +104,7 @@ func peekBuffers(t reflect.Type, p uintptr) (*bytes.Reader, *bytes.Buffer, error
 // The caller's countingConn MUST NOT be passed to Vision: proxy.UnwrapRawConn
 // does not recognize vgate's countingConn type, so direct-copy would read/write
 // through the TLS layer (re-encrypting raw inner TLS records → corruption).
-// Traffic is counted via buf.CountSize + s.addTraffic instead.
+// Traffic is accounted per chunk via accountReader hooks into addTraffic.
 func (s *Server) handleTCPVision(rawConn net.Conn, destAddr string, initialData []byte, uuid [16]byte, entryNode string) {
 	wrapped, input, rawInput, err := setupVisionConn(rawConn)
 	if err != nil {
@@ -141,19 +141,26 @@ func (s *Server) handleTCPVision(rawConn net.Conn, destAddr string, initialData 
 	// Downlink: destination → client. isUplink=false (server writing server→client).
 	downlinkWriter := proxy.NewVisionWriter(buf.NewWriter(wrapped), trafficState, false, ctx, wrapped, nil, nil)
 
-	destReader := buf.NewReader(limitedDest)
+	// Count each direction at the read side of its copy, chunk by chunk, into
+	// the per-user traffic stat. Counting here (rather than a SizeCounter
+	// flushed at copy end) keeps a live connection's bytes flowing into the
+	// 60s delta reports — and into quota enforcement — while it stays open,
+	// and also credits the tail chunks of whichever direction outlives the
+	// other.
+	destReader := &accountReader{
+		Reader: buf.NewReader(limitedDest),
+		fn:     func(n int64) { s.addTraffic(uuid, entryNode, 0, n) },
+	}
 	destWriter := buf.NewWriter(limitedDest)
 
-	var upCount, downCount buf.SizeCounter
 	errChan := make(chan error, 2)
 	go func() {
-		errChan <- buf.Copy(uplinkReader, destWriter, buf.CountSize(&upCount))
+		errChan <- buf.Copy(&accountReader{Reader: uplinkReader, fn: func(n int64) {
+			s.addTraffic(uuid, entryNode, n, 0)
+		}}, destWriter)
 	}()
 	go func() {
-		errChan <- buf.Copy(destReader, downlinkWriter, buf.CountSize(&downCount))
+		errChan <- buf.Copy(destReader, downlinkWriter)
 	}()
 	<-errChan // first side to finish closes the relay
-
-	// Account traffic (replaces countingConn for the Vision path).
-	s.addTraffic(uuid, entryNode, upCount.Size, downCount.Size)
 }

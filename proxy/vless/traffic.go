@@ -4,6 +4,8 @@ import (
 	"net"
 	"sync/atomic"
 
+	"github.com/xtls/xray-core/common/buf"
+
 	"github.com/vgate-project/vgate-server/model"
 )
 
@@ -65,6 +67,44 @@ func (s *Server) addTraffic(uuid [16]byte, node string, up, down int64) {
 	}
 	atomic.AddInt64(&s.userTraffic[key].up, up)
 	atomic.AddInt64(&s.userTraffic[key].down, down)
+	// Local quota enforcement: every counted chunk also accrues against the
+	// user's /usage snapshot, cutting the user the moment the effective
+	// remaining hits zero (no-op without a snapshot).
+	if n := up + down; n > 0 {
+		s.accrueQuotaLocked(uuid, s.userTraffic[key].email, n)
+	}
+}
+
+// accountReader wraps a buf.Reader and reports each chunk's byte count via
+// fn as the chunk is read. Unlike a SizeCounter tallied once at copy end,
+// this feeds addTraffic incrementally, so bytes flowing through a live
+// Vision/Mux connection are visible to reporting (and quota enforcement)
+// before the connection closes. Used on paths where the conn cannot be
+// wrapped by countingConn (Vision requires the raw *tls.Conn/*reality.Conn).
+type accountReader struct {
+	buf.Reader
+	fn func(int64)
+}
+
+func (r *accountReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
+	mb, err := r.Reader.ReadMultiBuffer()
+	if !mb.IsEmpty() {
+		r.fn(int64(mb.Len()))
+	}
+	return mb, err
+}
+
+// accountWriter is the WriteMultiBuffer counterpart of accountReader.
+type accountWriter struct {
+	buf.Writer
+	fn func(int64)
+}
+
+func (w *accountWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
+	if !mb.IsEmpty() {
+		w.fn(int64(mb.Len()))
+	}
+	return w.Writer.WriteMultiBuffer(mb)
 }
 
 // nodeForShortID resolves the virtual child node owning a Reality short ID.
