@@ -2,12 +2,19 @@ module github.com/vgate-project/vgate-server
 
 go 1.27
 
+// Locked: xtls/reality versions from 2026-09-10 hard-reject ClientHello
+// without an X25519MLKEM768 key share (forced post-quantum), which breaks
+// sing-box/mihomo clients that only offer plain X25519 (sing-box#4520).
+// This matches the version required by xray-core v1.260327.0. Do not bump
+// without verifying legacy-client compatibility.
+replace github.com/xtls/reality => github.com/xtls/reality v0.0.0-20260322125925-9234c772ba8f
+
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/sirupsen/logrus v1.10.2
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
-	github.com/xtls/reality v0.0.0-20260910011853-5dabb073f8e8
+	github.com/xtls/reality v0.0.0-20260322125925-9234c772ba8f
 	github.com/xtls/xray-core v1.260327.0
 	golang.org/x/time v0.16.0
 	google.golang.org/protobuf v1.36.12
